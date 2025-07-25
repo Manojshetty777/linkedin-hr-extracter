@@ -1,1 +1,234 @@
-# linkedin-hr-extracter
+import streamlit as st
+import pandas as pd
+import requests
+from urllib.parse import urlparse
+import random
+import time
+from datetime import datetime
+import io
+import base64
+from PIL import Image, ImageDraw, ImageFont
+
+st.set_page_config(page_title="LinkedIn HR Profile Extractor", page_icon="📄", layout="wide")
+
+# ------------------ Background Styling ------------------ #
+def set_background(image_file):
+    try:
+        with open(image_file, "rb") as file:
+            encoded_string = base64.b64encode(file.read()).decode()
+        css = f"""
+        <style>
+        .stApp {{
+            background-image: url("data:image/png;base64,{encoded_string}");
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }}
+        </style>
+        """
+        st.markdown(css, unsafe_allow_html=True)
+    except:
+        pass
+
+set_background("background.png")
+
+# ------------------ Image Renderers ------------------ #
+def generate_resume_image(profile):
+    img = Image.new("RGB", (700, 400), color=(245, 245, 245))
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+
+    draw.text((30, 30), "📄 Simulated Resume", font=font, fill="black")
+    draw.text((30, 80), f"Name: {profile['profile_name']}", font=font, fill="black")
+    draw.text((30, 120), f"Job Title: {profile['job_title']}", font=font, fill="black")
+    draw.text((30, 160), f"Company: {profile['company_name']}", font=font, fill="black")
+    draw.text((30, 200), f"Location: {profile['location']}", font=font, fill="black")
+    draw.text((30, 240), f"Profile URL: {profile['profile_url']}", font=font, fill="blue")
+
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
+
+def generate_certification_image(cert):
+    img = Image.new("RGB", (500, 300), color=(230, 250, 255))
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+
+    draw.text((20, 30), "📘 Certification Info", font=font, fill="black")
+    draw.text((20, 80), f"Name: {cert['certification']}", font=font, fill="black")
+    draw.text((20, 120), f"Provider: {cert['provider']}", font=font, fill="black")
+    draw.text((20, 160), f"Type: {cert['type']}", font=font, fill="black")
+    draw.text((20, 200), f"Issued: {cert['issued']}", font=font, fill="black")
+    draw.text((20, 240), f"Renewal: {cert['renewal']}", font=font, fill="black")
+
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
+
+# ------------------ LinkedIn Scraper Class ------------------ #
+class LinkedInScraper:
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        })
+        self.hr_certifications = {
+            'SHRM-CP': ('SHRM', 'HR Management'),
+            'PHR': ('HRCI', 'HR Professional'),
+            'SPHR': ('HRCI', 'Senior HR Professional'),
+            'CHRP': ('HRPA', 'Chartered HR Professional')
+        }
+        self.hr_keywords = ['human resources', 'hr', 'talent', 'recruit', 'people', 'employee']
+
+    def is_valid_linkedin_url(self, url):
+        parsed = urlparse(url)
+        return 'linkedin.com' in parsed.netloc and '/in/' in parsed.path
+
+    def extract_profile_data(self, url):
+        time.sleep(0.5)
+        return {
+            'profile_name': f"User {hash(url) % 1000}",
+            'company_name': f"Company {hash(url) % 100}",
+            'job_title': random.choice(['HR Manager', 'Recruiter', 'People Ops Lead']),
+            'department': 'HR',
+            'location': 'USA',
+            'certifications': self.generate_sample_certs()
+        }
+
+    def generate_sample_certs(self):
+        certs = list(self.hr_certifications.keys())
+        return [{
+            'name': c,
+            'provider': self.hr_certifications[c][0],
+            'type': self.hr_certifications[c][1],
+            'issued_date': f"{random.randint(1,12):02d}/{random.randint(2020,2023)}",
+            'renewal_date': f"{random.randint(1,12):02d}/{random.randint(2024,2026)}"
+        } for c in random.sample(certs, random.randint(1, len(certs)))]
+
+    def is_hr_related(self, title, dept):
+        return any(k in f"{title} {dept}".lower() for k in self.hr_keywords)
+
+    def process_urls(self, urls, update_cb=None):
+        results = []
+        for i, url in enumerate(urls):
+            if update_cb:
+                update_cb(i + 1, len(urls))
+            if not self.is_valid_linkedin_url(url):
+                continue
+            data = self.extract_profile_data(url)
+            base = {
+                'profile_url': url,
+                'profile_name': data['profile_name'],
+                'company_name': data['company_name'],
+                'job_title': data['job_title'],
+                'department': data['department'],
+                'location': data['location'],
+                'is_hr_related': self.is_hr_related(data['job_title'], data['department'])
+            }
+            for cert in data['certifications']:
+                results.append({**base,
+                    'certification': cert['name'],
+                    'provider': cert['provider'],
+                    'type': cert['type'],
+                    'issued': cert['issued_date'],
+                    'renewal': cert['renewal_date']
+                })
+        return results
+
+# ------------------ UI SECTION ------------------ #
+st.markdown("""
+<style>
+.filter-label {
+    color: gold;
+    font-weight: bold;
+    font-size: 18px;
+}
+.streamlit-expanderHeader {
+    font-weight: bold !important;
+    color: gold !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("Upload LinkedIn URLs to generate resume-style profile summaries and certifications.")
+scraper = LinkedInScraper()
+
+# ------------------ Filters ------------------ #
+st.markdown('<div style="text-align:center;">', unsafe_allow_html=True)
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    filter_hr = st.checkbox("Only HR profiles", value=False)
+    st.markdown('<div class="filter-label">Only HR profiles</div>', unsafe_allow_html=True)
+
+with col2:
+    filter_cert = st.checkbox("With certifications", value=False)
+    st.markdown('<div class="filter-label">With certifications</div>', unsafe_allow_html=True)
+
+with col3:
+    show_resume_img = st.checkbox("Show Resume Image", value=True)
+    st.markdown('<div class="filter-label">Show Resume Image</div>', unsafe_allow_html=True)
+
+with col4:
+    show_cert_img = st.checkbox("Show Cert Image", value=True)
+    st.markdown('<div class="filter-label">Show Cert Image</div>', unsafe_allow_html=True)
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# ------------------ Upload Interface ------------------ #
+st.markdown("### 📤 Upload or Paste LinkedIn URLs")
+
+upload_method = st.radio("Choose URL input method:", ["Upload File", "Paste Manually"], horizontal=True)
+
+urls = []
+if upload_method == "Upload File":
+    uploaded_file = st.file_uploader("Upload CSV or Excel file", type=['csv', 'xlsx'], key="file_upload_fixed")
+    if uploaded_file:
+        try:
+            df_input = pd.read_csv(uploaded_file) if uploaded_file.name.endswith("csv") else pd.read_excel(uploaded_file)
+            url_col = st.selectbox("Select column containing LinkedIn URLs", df_input.columns)
+            urls = df_input[url_col].dropna().tolist()
+            st.success(f"Loaded {len(urls)} URLs from file.")
+        except Exception as e:
+            st.error(f"Failed to read file: {e}")
+else:
+    manual_input = st.text_area("Paste LinkedIn URLs (one per line):", key="manual_input_box")
+    urls = [line.strip() for line in manual_input.split('\n') if line.strip()]
+    if urls:
+        st.success(f"Loaded {len(urls)} URLs from text input.")
+
+# ------------------ Process Button ------------------ #
+if st.button("🚀 Start Extraction") and urls:
+    st.info("Processing... Please wait.")
+    bar = st.progress(0)
+    status = st.empty()
+
+    def update_progress(current, total):
+        bar.progress(current / total)
+        status.text(f"Processing {current}/{total}")
+
+    result_data = scraper.process_urls(urls, update_progress)
+    df_result = pd.DataFrame(result_data)
+
+    if filter_hr:
+        df_result = df_result[df_result['is_hr_related']]
+    if filter_cert:
+        df_result = df_result[df_result['certification'] != ""]
+
+    st.success(f"Processed {len(df_result)} entries.")
+    st.dataframe(df_result)
+
+    st.download_button("📥 Download CSV", df_result.to_csv(index=False), "linkedin_hr_profiles.csv", "text/csv")
+
+    if show_resume_img:
+        st.subheader("📸 Resume-Style Profile Images")
+        for profile in df_result.to_dict(orient='records'):
+            st.image(generate_resume_image(profile), caption=f"{profile['profile_name']}")
+
+    if show_cert_img:
+        st.subheader("🏅 Certification Images")
+        for cert in df_result.to_dict(orient='records'):
+            with st.expander(f"Cert: {cert['certification']} from {cert['provider']}"):
+                st.image(generate_certification_image(cert), caption=cert['certification'])
